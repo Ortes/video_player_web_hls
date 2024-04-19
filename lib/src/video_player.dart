@@ -314,7 +314,7 @@ class VideoPlayer {
             _videoElement.videoHeight.toDouble(),
           )
         : null;
-    if (size?.height == 0 || size?.width == 0) {
+    if (size == null || size.height == 0 || size.width == 0) {
       size = const Size(1920, 1080);
     }
 
