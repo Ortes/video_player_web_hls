@@ -308,12 +308,15 @@ class VideoPlayer {
     final Duration? duration =
         convertNumVideoDurationToPluginDuration(_videoElement.duration);
 
-    final Size? size = _videoElement.videoHeight.isFinite
+    Size? size = _videoElement.videoHeight.isFinite
         ? Size(
             _videoElement.videoWidth.toDouble(),
             _videoElement.videoHeight.toDouble(),
           )
         : null;
+    if (size?.height == 0 || size?.width == 0) {
+      size = const Size(1920, 1080);
+    }
 
     _eventController.add(
       VideoEvent(
