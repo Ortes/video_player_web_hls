@@ -374,6 +374,7 @@ class VideoPlayer {
   }
 
   Future<bool> shouldUseHlsLibrary() async {
+    return true;
     return isSupported() &&
         (uri.toString().contains('m3u8') || await _testIfM3u8()) &&
         !canPlayHlsNatively();
