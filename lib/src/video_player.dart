@@ -38,8 +38,7 @@ const Map<int, String> _kErrorValueToErrorDescription = <int, String>{
 
 // The default error message, when the error is an empty string
 // See: https://developer.mozilla.org/en-US/docs/Web/API/MediaError/message
-const String _kDefaultErrorMessage =
-    'No further diagnostic information can be determined or provided.';
+const String _kDefaultErrorMessage = 'No further diagnostic information can be determined or provided.';
 
 /// Wraps a [html.VideoElement] so its API complies with what is expected by the plugin.
 class VideoPlayer {
@@ -126,7 +125,7 @@ class VideoPlayer {
               }
             }.toJS);
         _eventsSubscriptions.add(_videoElement.onCanPlay.listen((dynamic _) {
-          _onVideoElementInitialization(_) ;
+          _onVideoElementInitialization(_);
           setBuffering(false);
         }));
       } catch (e) {
@@ -140,8 +139,7 @@ class VideoPlayer {
         }
         _onVideoElementInitialization(event);
       };
-      _eventsSubscriptions
-          .add(_videoElement.onDurationChange.listen(onDurationChange));
+      _eventsSubscriptions.add(_videoElement.onDurationChange.listen(onDurationChange));
     }
 
     // Needed for Safari iOS 17, which may not send `canplay`.
@@ -183,6 +181,20 @@ class VideoPlayer {
         code: _kErrorValueToErrorName[error.code]!,
         message: error.message != '' ? error.message : _kDefaultErrorMessage,
         details: _kErrorValueToErrorDescription[error.code],
+      ));
+    }));
+
+    _eventsSubscriptions.add(_videoElement.onPlay.listen((dynamic _) {
+      _eventController.add(VideoEvent(
+        eventType: VideoEventType.isPlayingStateUpdate,
+        isPlaying: true,
+      ));
+    }));
+
+    _eventsSubscriptions.add(_videoElement.onPause.listen((dynamic _) {
+      _eventController.add(VideoEvent(
+        eventType: VideoEventType.isPlayingStateUpdate,
+        isPlaying: false,
       ));
     }));
 
@@ -305,8 +317,7 @@ class VideoPlayer {
 
   // Sends an [VideoEventType.initialized] [VideoEvent] with info about the wrapped video.
   void _sendInitialized() {
-    final Duration? duration =
-        convertNumVideoDurationToPluginDuration(_videoElement.duration);
+    final Duration? duration = convertNumVideoDurationToPluginDuration(_videoElement.duration);
 
     Size? size = _videoElement.videoHeight.isFinite
         ? Size(
@@ -336,9 +347,7 @@ class VideoPlayer {
     if (_isBuffering != buffering) {
       _isBuffering = buffering;
       _eventController.add(VideoEvent(
-        eventType: _isBuffering
-            ? VideoEventType.bufferingStart
-            : VideoEventType.bufferingEnd,
+        eventType: _isBuffering ? VideoEventType.bufferingStart : VideoEventType.bufferingEnd,
       ));
     }
   }
@@ -366,17 +375,14 @@ class VideoPlayer {
   bool canPlayHlsNatively() {
     bool canPlayHls = false;
     try {
-      final String canPlayType =
-          _videoElement.canPlayType('application/vnd.apple.mpegurl');
+      final String canPlayType = _videoElement.canPlayType('application/vnd.apple.mpegurl');
       canPlayHls = canPlayType != '';
     } catch (e) {}
     return canPlayHls;
   }
 
   Future<bool> shouldUseHlsLibrary() async {
-    return isSupported() &&
-        (uri.toString().contains('m3u8') || await _testIfM3u8()) &&
-        !canPlayHlsNatively();
+    return isSupported() && (uri.toString().contains('m3u8') || await _testIfM3u8()) && !canPlayHlsNatively();
   }
 
   Future<bool> _testIfM3u8() async {
@@ -393,8 +399,7 @@ class VideoPlayer {
       } else {
         headers['Range'] = 'bytes=0-1023';
       }
-      final http.Response response =
-          await http.get(Uri.parse(this.uri), headers: headers);
+      final http.Response response = await http.get(Uri.parse(this.uri), headers: headers);
       final String body = response.body;
       if (!body.contains('#EXTM3U')) {
         return false;
