@@ -30,7 +30,7 @@ extension HlsExtension on Hls {
 @anonymous
 @staticInterop
 class HlsConfig {
-  external factory HlsConfig({JSFunction xhrSetup});
+  external factory HlsConfig({JSFunction xhrSetup, JSBoolean debug});
 }
 
 extension HlsConfigExtension on HlsConfig {
