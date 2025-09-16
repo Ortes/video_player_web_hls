@@ -376,12 +376,27 @@ class VideoPlayer {
     bool canPlayHls = false;
     try {
       final String canPlayType = _videoElement.canPlayType('application/vnd.apple.mpegurl');
+      print('canPlayType: $canPlayType');
       canPlayHls = canPlayType != '';
     } catch (e) {}
     return canPlayHls;
   }
 
+  bool _isSamsungInternet() {
+    try {
+      return web.window.navigator.userAgent.contains('SamsungBrowser');
+    } catch (e) {
+      return false;
+    }
+  }
+
   Future<bool> shouldUseHlsLibrary() async {
+    // Force use of HLS library for Samsung Internet browser
+    // Otherwise it doesn't works for some videos
+    if (_isSamsungInternet()) {
+      return isSupported() && (uri.toString().contains('m3u8') || await _testIfM3u8());
+    }
+
     return isSupported() && (uri.toString().contains('m3u8') || await _testIfM3u8()) && !canPlayHlsNatively();
   }
 
