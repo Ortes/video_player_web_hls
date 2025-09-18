@@ -376,7 +376,6 @@ class VideoPlayer {
     bool canPlayHls = false;
     try {
       final String canPlayType = _videoElement.canPlayType('application/vnd.apple.mpegurl');
-      print('canPlayType: $canPlayType');
       canPlayHls = canPlayType != '';
     } catch (e) {}
     return canPlayHls;
