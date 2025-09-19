@@ -381,22 +381,27 @@ class VideoPlayer {
     return canPlayHls;
   }
 
-  bool _isSamsungInternet() {
+  static const List<String> _browsersRequiringHlsForce = [
+    'SamsungBrowser',
+    'MiuiBrowser',
+  ];
+
+  bool _shouldForceHlsLibrary() {
     try {
-      return web.window.navigator.userAgent.contains('SamsungBrowser');
+      final userAgent = web.window.navigator.userAgent;
+      return _browsersRequiringHlsForce.any((browser) => userAgent.contains(browser));
     } catch (e) {
       return false;
     }
   }
 
   Future<bool> shouldUseHlsLibrary() async {
-    // Force use of HLS library for Samsung Internet browser
-    // Otherwise it doesn't works for some videos
-    if (_isSamsungInternet()) {
-      return isSupported() && (uri.toString().contains('m3u8') || await _testIfM3u8());
-    }
+    if (!isSupported()) return false;
 
-    return isSupported() && (uri.toString().contains('m3u8') || await _testIfM3u8()) && !canPlayHlsNatively();
+    final isHlsStream = uri.toString().contains('m3u8') || await _testIfM3u8();
+    if (!isHlsStream) return false;
+
+    return _shouldForceHlsLibrary() || !canPlayHlsNatively();
   }
 
   Future<bool> _testIfM3u8() async {
