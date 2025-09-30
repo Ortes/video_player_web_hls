@@ -381,27 +381,8 @@ class VideoPlayer {
     return canPlayHls;
   }
 
-  static const List<String> _browsersRequiringHlsForce = [
-    'SamsungBrowser',
-    'MiuiBrowser',
-  ];
-
-  bool _shouldForceHlsLibrary() {
-    try {
-      final userAgent = web.window.navigator.userAgent;
-      return _browsersRequiringHlsForce.any((browser) => userAgent.contains(browser));
-    } catch (e) {
-      return false;
-    }
-  }
-
   Future<bool> shouldUseHlsLibrary() async {
-    if (!isSupported()) return false;
-
-    final isHlsStream = uri.toString().contains('m3u8') || await _testIfM3u8();
-    if (!isHlsStream) return false;
-
-    return _shouldForceHlsLibrary() || !canPlayHlsNatively();
+    return isSupported() && (uri.toString().contains('m3u8') || await _testIfM3u8());
   }
 
   Future<bool> _testIfM3u8() async {
@@ -453,6 +434,12 @@ class VideoPlayer {
 
     if (!options.allowRemotePlayback) {
       _videoElement.disableRemotePlayback = true;
+    } else {
+      final bool isSafari = web.window.navigator.userAgent.contains('Safari');
+
+      if (isSafari) {
+        debugPrint('Warning: Enabling remote playback on Safari may prevent media from loading properly.');
+      }
     }
 
     if (options.poster != null) {
