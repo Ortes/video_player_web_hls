@@ -13,6 +13,7 @@ import 'package:video_player_platform_interface/video_player_platform_interface.
 import 'package:http/http.dart' as http;
 import 'package:video_player_web_hls/hls.dart';
 import 'package:video_player_web_hls/no_script_tag_exception.dart';
+import 'package:video_player_web_hls/src/audio_track.dart';
 import 'package:video_player_web_hls/src/pkg_web_tweaks.dart';
 import 'package:video_player_web_hls/src/subtitle_track.dart';
 import 'package:web/web.dart' as web;
@@ -22,6 +23,10 @@ import 'duration_utils.dart';
 // hls.js event names used for subtitle handling.
 const String _kHlsSubtitleTracksUpdated = 'hlsSubtitleTracksUpdated';
 const String _kHlsSubtitleTrackSwitch = 'hlsSubtitleTrackSwitch';
+
+// hls.js event names used for audio handling.
+const String _kHlsAudioTracksUpdated = 'hlsAudioTracksUpdated';
+const String _kHlsAudioTrackSwitched = 'hlsAudioTrackSwitched';
 
 // An error code value to error name Map.
 // See: https://developer.mozilla.org/en-US/docs/Web/API/MediaError/code
@@ -176,6 +181,42 @@ class VideoPlayer {
     _emitActiveCues();
   }
 
+  // ---- Audio tracks -----------------------------------------------------
+
+  final StreamController<void> _audioTracksController =
+      StreamController<void>.broadcast();
+  JSFunction? _onHlsAudioTracksUpdated;
+  JSFunction? _onHlsAudioTrackSwitched;
+
+  /// Audio renditions advertised by the manifest. Empty when not playing
+  /// through hls.js or before the manifest is parsed.
+  List<HlsAudioTrack> get audioTracks {
+    final hls = _hls;
+    if (hls == null) return const <HlsAudioTrack>[];
+    return hls.audioTracks.toDart
+        .map((t) => HlsAudioTrack(
+              id: t.id,
+              label: t.name,
+              language: t.lang,
+              isDefault: t.isDefault,
+            ))
+        .toList(growable: false);
+  }
+
+  /// Index of the active audio rendition. There is always an active audio
+  /// track once the manifest is parsed.
+  int get audioTrack => _hls?.audioTrack ?? -1;
+
+  set audioTrack(int id) {
+    final hls = _hls;
+    if (hls == null) return;
+    hls.audioTrack = id;
+  }
+
+  /// Fires whenever the set of [audioTracks] or the active selection changes,
+  /// so callers can refresh their UI.
+  Stream<void> get audioTracksChanged => _audioTracksController.stream;
+
   /// Initializes the wrapped [html.VideoElement].
   ///
   /// This method sets the required DOM attributes so videos can [play] programmatically,
@@ -219,10 +260,15 @@ class VideoPlayer {
             (String _, JSObject data) {
               try {
                 final ErrorData _data = ErrorData(data);
+                // Verbose: log every hls.js error, fatal or not. Non-fatal
+                // errors (frag load timeouts, buffer stalls) precede most
+                // fatal failures and are otherwise swallowed silently.
+                debugPrint(
+                    '[hls] ${_data.fatal ? 'FATAL' : 'warn'} ${_data.type} / ${_data.details}');
                 if (_data.fatal) {
                   _eventController.addError(PlatformException(
                     code: _kErrorValueToErrorName[2]!,
-                    message: _data.type,
+                    message: '${_data.type} / ${_data.details}',
                     details: _data.details,
                   ));
                 }
@@ -242,6 +288,12 @@ class VideoPlayer {
         }).toJS;
         _hls!.on(_kHlsSubtitleTracksUpdated, _onHlsSubtitleTracksUpdated!);
         _hls!.on(_kHlsSubtitleTrackSwitch, _onHlsSubtitleTrackSwitch!);
+        _onHlsAudioTracksUpdated =
+            ((String _, JSObject __) => _audioTracksController.add(null)).toJS;
+        _onHlsAudioTrackSwitched =
+            ((String _, JSObject __) => _audioTracksController.add(null)).toJS;
+        _hls!.on(_kHlsAudioTracksUpdated, _onHlsAudioTracksUpdated!);
+        _hls!.on(_kHlsAudioTrackSwitched, _onHlsAudioTrackSwitched!);
         _eventsSubscriptions.add(_videoElement.onCanPlay.listen((dynamic _) {
           _onVideoElementInitialization(_);
           setBuffering(false);
@@ -437,9 +489,16 @@ class VideoPlayer {
       if (_onHlsSubtitleTrackSwitch != null) {
         hls.off(_kHlsSubtitleTrackSwitch, _onHlsSubtitleTrackSwitch!);
       }
+      if (_onHlsAudioTracksUpdated != null) {
+        hls.off(_kHlsAudioTracksUpdated, _onHlsAudioTracksUpdated!);
+      }
+      if (_onHlsAudioTrackSwitched != null) {
+        hls.off(_kHlsAudioTrackSwitched, _onHlsAudioTrackSwitched!);
+      }
     }
     _subtitleCueController.close();
     _subtitleTracksController.close();
+    _audioTracksController.close();
     _hls?.stopLoad();
     for (final sub in _eventsSubscriptions) {
       sub.cancel();

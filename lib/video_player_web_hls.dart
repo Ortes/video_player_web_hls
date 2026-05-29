@@ -10,9 +10,11 @@ import 'package:flutter_web_plugins/flutter_web_plugins.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 import 'package:web/web.dart' as web;
 
+import 'src/audio_track.dart';
 import 'src/subtitle_track.dart';
 import 'src/video_player.dart';
 
+export 'src/audio_track.dart' show HlsAudioTrack;
 export 'src/subtitle_track.dart' show HlsSubtitleTrack;
 
 /// The web implementation of [VideoPlayerPlatform].
@@ -208,4 +210,28 @@ class VideoPlayerPluginHls extends VideoPlayerPlatform {
   /// Fires when [getSubtitleTracks] or the active selection changes.
   Stream<void> subtitleTracksChanged(int textureId) =>
       _player(textureId).subtitleTracksChanged;
+
+  // ---- Audio tracks (HLS-only, outside the platform interface) ----------
+  //
+  // Named with an `hls` prefix to avoid clashing with the federated
+  // [VideoPlayerPlatform.getAudioTracks]/[selectAudioTrack] API, which returns
+  // its own `VideoAudioTrack` type and exposes no change notification.
+
+  /// Audio renditions advertised by the manifest for [textureId].
+  ///
+  /// Empty before the manifest is parsed; listen to [hlsAudioTracksChanged] to
+  /// know when to re-read.
+  List<HlsAudioTrack> hlsAudioTracks(int textureId) =>
+      _player(textureId).audioTracks;
+
+  /// Index of the active audio rendition for [textureId].
+  int hlsAudioTrack(int textureId) => _player(textureId).audioTrack;
+
+  /// Selects audio rendition [id] for [textureId].
+  void setHlsAudioTrack(int textureId, int id) =>
+      _player(textureId).audioTrack = id;
+
+  /// Fires when [hlsAudioTracks] or the active selection changes.
+  Stream<void> hlsAudioTracksChanged(int textureId) =>
+      _player(textureId).audioTracksChanged;
 }

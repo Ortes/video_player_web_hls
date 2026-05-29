@@ -40,10 +40,27 @@ extension HlsExtension on Hls {
   /// (so `cuechange` fires and `activeCues` is populated) but draws nothing,
   /// letting the host (e.g. Flutter) render them instead.
   external bool subtitleDisplay;
+
+  /// The alternate audio renditions declared in the manifest.
+  external JSArray<HlsAudioTrackJs> get audioTracks;
+
+  /// Index into [audioTracks] of the active audio rendition. Assigning
+  /// switches the rendition (there is always an active audio track).
+  external int audioTrack;
 }
 
 /// hls.js subtitle-track descriptor as exposed on [HlsExtension.subtitleTracks].
 extension type HlsSubtitleTrackJs._(JSObject _) implements JSObject {
+  external int get id;
+  external String? get name;
+  external String? get lang;
+
+  @JS('default')
+  external bool get isDefault;
+}
+
+/// hls.js audio-track descriptor as exposed on [HlsExtension.audioTracks].
+extension type HlsAudioTrackJs._(JSObject _) implements JSObject {
   external int get id;
   external String? get name;
   external String? get lang;
