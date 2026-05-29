@@ -23,7 +23,33 @@ extension HlsExtension on Hls {
 
   external void on(String event, JSFunction callback);
 
+  external void off(String event, JSFunction callback);
+
   external HlsConfig config;
+
+  /// The alternate subtitle renditions declared in the manifest.
+  external JSArray<HlsSubtitleTrackJs> get subtitleTracks;
+
+  /// Index into [subtitleTracks] of the active subtitle rendition, or `-1`
+  /// when subtitles are disabled. Assigning switches the rendition.
+  external int subtitleTrack;
+
+  /// Whether hls.js renders subtitle cues natively onto the `<video>` element.
+  ///
+  /// When `false`, hls.js still parses the cues into a `hidden` [web.TextTrack]
+  /// (so `cuechange` fires and `activeCues` is populated) but draws nothing,
+  /// letting the host (e.g. Flutter) render them instead.
+  external bool subtitleDisplay;
+}
+
+/// hls.js subtitle-track descriptor as exposed on [HlsExtension.subtitleTracks].
+extension type HlsSubtitleTrackJs._(JSObject _) implements JSObject {
+  external int get id;
+  external String? get name;
+  external String? get lang;
+
+  @JS('default')
+  external bool get isDefault;
 }
 
 @JS()

@@ -4,6 +4,7 @@
 
 import 'dart:async';
 import 'dart:js_interop';
+import 'dart:js_interop_unsafe';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -13,9 +14,14 @@ import 'package:http/http.dart' as http;
 import 'package:video_player_web_hls/hls.dart';
 import 'package:video_player_web_hls/no_script_tag_exception.dart';
 import 'package:video_player_web_hls/src/pkg_web_tweaks.dart';
+import 'package:video_player_web_hls/src/subtitle_track.dart';
 import 'package:web/web.dart' as web;
 
 import 'duration_utils.dart';
+
+// hls.js event names used for subtitle handling.
+const String _kHlsSubtitleTracksUpdated = 'hlsSubtitleTracksUpdated';
+const String _kHlsSubtitleTrackSwitch = 'hlsSubtitleTrackSwitch';
 
 // An error code value to error name Map.
 // See: https://developer.mozilla.org/en-US/docs/Web/API/MediaError/code
@@ -69,6 +75,106 @@ class VideoPlayer {
   Stream<VideoEvent> get events => _eventController.stream;
 
   final List<StreamSubscription> _eventsSubscriptions = [];
+
+  // ---- Subtitle tracks --------------------------------------------------
+
+  final StreamController<String?> _subtitleCueController =
+      StreamController<String?>.broadcast();
+  final StreamController<void> _subtitleTracksController =
+      StreamController<void>.broadcast();
+
+  // When hls.js doesn't render cues itself ([_subtitleDisplay] is false), the
+  // selected rendition's native TextTrack is set to `hidden`: cues are parsed
+  // and `cuechange` fires, but nothing is painted. We listen on that track and
+  // forward the active cue text so the host can render it.
+  web.TextTrack? _activeCueTrack;
+  bool _subtitleDisplay = false;
+  JSFunction? _onHlsSubtitleTracksUpdated;
+  JSFunction? _onHlsSubtitleTrackSwitch;
+  late final web.EventListener _cueChangeListener =
+      ((web.Event _) => _emitActiveCues()).toJS;
+
+  /// Subtitle renditions advertised by the manifest. Empty when not playing
+  /// through hls.js or before the manifest is parsed.
+  List<HlsSubtitleTrack> get subtitleTracks {
+    final hls = _hls;
+    if (hls == null) return const <HlsSubtitleTrack>[];
+    return hls.subtitleTracks.toDart
+        .map((t) => HlsSubtitleTrack(
+              id: t.id,
+              label: t.name,
+              language: t.lang,
+              isDefault: t.isDefault,
+            ))
+        .toList(growable: false);
+  }
+
+  /// Index of the active subtitle rendition, or `-1` when subtitles are off.
+  int get subtitleTrack => _hls?.subtitleTrack ?? -1;
+
+  set subtitleTrack(int id) {
+    final hls = _hls;
+    if (hls == null) return;
+    hls.subtitleTrack = id;
+    // `hlsSubtitleTrackSwitch` re-wires the cue listener; do it eagerly too so
+    // disabling (id < 0) clears any showing cue immediately.
+    _rewireActiveCueTrack();
+  }
+
+  /// Whether hls.js paints subtitle cues itself. Defaults to `false` so the
+  /// host renders them; flip to `true` to hand rendering back to the browser.
+  bool get subtitleDisplay => _subtitleDisplay;
+
+  set subtitleDisplay(bool value) {
+    _subtitleDisplay = value;
+    _hls?.subtitleDisplay = value;
+    _rewireActiveCueTrack();
+  }
+
+  /// The active subtitle cue text (newline-joined), or `null` when none is
+  /// showing. Only emits while [subtitleDisplay] is `false`.
+  Stream<String?> get subtitleCues => _subtitleCueController.stream;
+
+  /// Fires whenever the set of [subtitleTracks] or the active selection
+  /// changes, so callers can refresh their UI.
+  Stream<void> get subtitleTracksChanged => _subtitleTracksController.stream;
+
+  void _emitActiveCues() {
+    final track = _activeCueTrack;
+    final cues = track?.activeCues;
+    if (track == null || cues == null || cues.length == 0) {
+      _subtitleCueController.add(null);
+      return;
+    }
+    final parts = <String>[];
+    for (var i = 0; i < cues.length; i++) {
+      final cue = cues.getProperty<web.TextTrackCue>(i.toJS);
+      // All HLS WebVTT cues are VTTCues, which expose the rendered text.
+      if (cue.isA<web.VTTCue>()) parts.add((cue as web.VTTCue).text);
+    }
+    _subtitleCueController.add(parts.isEmpty ? null : parts.join('\n'));
+  }
+
+  void _rewireActiveCueTrack() {
+    _activeCueTrack?.removeEventListener('cuechange', _cueChangeListener);
+    _activeCueTrack = null;
+
+    if (_subtitleDisplay || (_hls?.subtitleTrack ?? -1) < 0) {
+      _subtitleCueController.add(null);
+      return;
+    }
+
+    final tracks = _videoElement.textTracks;
+    for (var i = 0; i < tracks.length; i++) {
+      final track = tracks.getProperty<web.TextTrack>(i.toJS);
+      if (track.mode != 'disabled') {
+        _activeCueTrack = track;
+        break;
+      }
+    }
+    _activeCueTrack?.addEventListener('cuechange', _cueChangeListener);
+    _emitActiveCues();
+  }
 
   /// Initializes the wrapped [html.VideoElement].
   ///
@@ -124,6 +230,18 @@ class VideoPlayer {
                 debugPrint('Error parsing hlsError: $e');
               }
             }.toJS);
+        // Host renders cues by default; cues are still parsed into a hidden
+        // TextTrack so we can forward their text.
+        _hls!.subtitleDisplay = _subtitleDisplay;
+        _onHlsSubtitleTracksUpdated =
+            ((String _, JSObject __) => _subtitleTracksController.add(null))
+                .toJS;
+        _onHlsSubtitleTrackSwitch = ((String _, JSObject __) {
+          _subtitleTracksController.add(null);
+          _rewireActiveCueTrack();
+        }).toJS;
+        _hls!.on(_kHlsSubtitleTracksUpdated, _onHlsSubtitleTracksUpdated!);
+        _hls!.on(_kHlsSubtitleTrackSwitch, _onHlsSubtitleTrackSwitch!);
         _eventsSubscriptions.add(_videoElement.onCanPlay.listen((dynamic _) {
           _onVideoElementInitialization(_);
           setBuffering(false);
@@ -309,6 +427,19 @@ class VideoPlayer {
       _onContextMenu = null;
     }
     _videoElement.load();
+    _activeCueTrack?.removeEventListener('cuechange', _cueChangeListener);
+    _activeCueTrack = null;
+    final hls = _hls;
+    if (hls != null) {
+      if (_onHlsSubtitleTracksUpdated != null) {
+        hls.off(_kHlsSubtitleTracksUpdated, _onHlsSubtitleTracksUpdated!);
+      }
+      if (_onHlsSubtitleTrackSwitch != null) {
+        hls.off(_kHlsSubtitleTrackSwitch, _onHlsSubtitleTrackSwitch!);
+      }
+    }
+    _subtitleCueController.close();
+    _subtitleTracksController.close();
     _hls?.stopLoad();
     for (final sub in _eventsSubscriptions) {
       sub.cancel();

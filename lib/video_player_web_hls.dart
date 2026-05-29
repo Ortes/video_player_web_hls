@@ -10,7 +10,10 @@ import 'package:flutter_web_plugins/flutter_web_plugins.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 import 'package:web/web.dart' as web;
 
+import 'src/subtitle_track.dart';
 import 'src/video_player.dart';
+
+export 'src/subtitle_track.dart' show HlsSubtitleTrack;
 
 /// The web implementation of [VideoPlayerPlatform].
 ///
@@ -18,8 +21,22 @@ import 'src/video_player.dart';
 class VideoPlayerPluginHls extends VideoPlayerPlatform {
   /// Registers this class as the default instance of [VideoPlayerPlatform].
   static void registerWith(Registrar registrar) {
-    VideoPlayerPlatform.instance = VideoPlayerPluginHls();
+    final plugin = VideoPlayerPluginHls();
+    VideoPlayerPlatform.instance = plugin;
+    instance = plugin;
   }
+
+  /// The registered plugin, when this implementation is the active one.
+  ///
+  /// HLS-specific features (subtitle tracks) live outside the federated
+  /// [VideoPlayerPlatform] interface, so callers reach them through here using
+  /// a `VideoPlayerController`'s `textureId`:
+  ///
+  /// ```dart
+  /// final hls = VideoPlayerPluginHls.instance;
+  /// final tracks = hls?.getSubtitleTracks(controller.textureId);
+  /// ```
+  static VideoPlayerPluginHls? instance;
 
   // Map of textureId -> VideoPlayer instances
   final Map<int, VideoPlayer> _videoPlayers = <int, VideoPlayer>{};
@@ -161,4 +178,34 @@ class VideoPlayerPluginHls extends VideoPlayerPlatform {
   /// Sets the audio mode to mix with other sources (ignored)
   @override
   Future<void> setMixWithOthers(bool mixWithOthers) => Future<void>.value();
+
+  // ---- Subtitle tracks (HLS-only, outside the platform interface) -------
+
+  /// Subtitle renditions advertised by the manifest for [textureId].
+  ///
+  /// Empty before the manifest is parsed; listen to
+  /// [subtitleTracksChanged] to know when to re-read.
+  List<HlsSubtitleTrack> getSubtitleTracks(int textureId) =>
+      _player(textureId).subtitleTracks;
+
+  /// Index of the active subtitle rendition for [textureId], `-1` when off.
+  int getSubtitleTrack(int textureId) => _player(textureId).subtitleTrack;
+
+  /// Selects subtitle rendition [id] (use `-1` to disable) for [textureId].
+  void setSubtitleTrack(int textureId, int id) =>
+      _player(textureId).subtitleTrack = id;
+
+  /// Whether hls.js paints cues itself for [textureId]. `false` (default)
+  /// lets the host render the cues from [subtitleCues].
+  void setSubtitleDisplay(int textureId, bool value) =>
+      _player(textureId).subtitleDisplay = value;
+
+  /// Active subtitle cue text for [textureId] (newline-joined, `null` when
+  /// none). Only emits while native display is off.
+  Stream<String?> subtitleCues(int textureId) =>
+      _player(textureId).subtitleCues;
+
+  /// Fires when [getSubtitleTracks] or the active selection changes.
+  Stream<void> subtitleTracksChanged(int textureId) =>
+      _player(textureId).subtitleTracksChanged;
 }
