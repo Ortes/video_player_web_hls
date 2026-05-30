@@ -13,7 +13,6 @@ import 'package:video_player_platform_interface/video_player_platform_interface.
 import 'package:http/http.dart' as http;
 import 'package:video_player_web_hls/hls.dart';
 import 'package:video_player_web_hls/no_script_tag_exception.dart';
-import 'package:video_player_web_hls/src/audio_track.dart';
 import 'package:video_player_web_hls/src/pkg_web_tweaks.dart';
 import 'package:video_player_web_hls/src/subtitle_track.dart';
 import 'package:web/web.dart' as web;
@@ -23,10 +22,6 @@ import 'duration_utils.dart';
 // hls.js event names used for subtitle handling.
 const String _kHlsSubtitleTracksUpdated = 'hlsSubtitleTracksUpdated';
 const String _kHlsSubtitleTrackSwitch = 'hlsSubtitleTrackSwitch';
-
-// hls.js event names used for audio handling.
-const String _kHlsAudioTracksUpdated = 'hlsAudioTracksUpdated';
-const String _kHlsAudioTrackSwitched = 'hlsAudioTrackSwitched';
 
 // An error code value to error name Map.
 // See: https://developer.mozilla.org/en-US/docs/Web/API/MediaError/code
@@ -75,6 +70,19 @@ class VideoPlayer {
 
   /// Force use hlsjs when set to `true`.
   bool? _hlsFallback;
+
+  // ---- In-place source swap (audio-track switching) ---------------------
+  // The source hls.js should (re)load. Starts as [uri]; [switchSource] updates
+  // it so that when hls.js re-fires MEDIA_ATTACHED on loadSource (it resets the
+  // MediaSource), the re-attach handler reloads the SWITCHED source rather than
+  // the original — otherwise the switch is immediately clobbered.
+  late String _currentSource = uri;
+  // True while a [switchSource] is in flight: guards the `ended` handler from
+  // emitting a spurious `completed` when hls.js tears down the MediaSource.
+  bool _isSwitching = false;
+  // Incremented per switch so stale one-shot handlers from an earlier (rapid)
+  // switch no-op instead of seeking/playing the wrong source.
+  int _switchGen = 0;
 
   /// Returns the [Stream] of [VideoEvent]s from the inner [html.VideoElement].
   Stream<VideoEvent> get events => _eventController.stream;
@@ -181,41 +189,75 @@ class VideoPlayer {
     _emitActiveCues();
   }
 
-  // ---- Audio tracks -----------------------------------------------------
+  // ---- In-place source swap --------------------------------------------
 
-  final StreamController<void> _audioTracksController =
-      StreamController<void>.broadcast();
-  JSFunction? _onHlsAudioTracksUpdated;
-  JSFunction? _onHlsAudioTrackSwitched;
-
-  /// Audio renditions advertised by the manifest. Empty when not playing
-  /// through hls.js or before the manifest is parsed.
-  List<HlsAudioTrack> get audioTracks {
-    final hls = _hls;
-    if (hls == null) return const <HlsAudioTrack>[];
-    return hls.audioTracks.toDart
-        .map((t) => HlsAudioTrack(
-              id: t.id,
-              label: t.name,
-              language: t.lang,
-              isDefault: t.isDefault,
-            ))
-        .toList(growable: false);
-  }
-
-  /// Index of the active audio rendition. There is always an active audio
-  /// track once the manifest is parsed.
-  int get audioTrack => _hls?.audioTrack ?? -1;
-
-  set audioTrack(int id) {
+  /// Swaps the playing HLS source to [url] in place (without recreating the
+  /// `<video>` element / platform texture), restoring playback to
+  /// [startPositionSeconds] and preserving the active subtitle selection.
+  ///
+  /// Used for audio-track switching under a muxed HLS model, where each audio
+  /// track is a distinct fMP4 variant rather than an hls.js audio rendition:
+  /// the caller passes a new master URL whose variant embeds the chosen track.
+  /// A brief rebuffer is expected.
+  ///
+  /// No-op on the native (non-hls.js) path — there the caller should recreate
+  /// the player instead.
+  void switchSource(String url, double startPositionSeconds) {
     final hls = _hls;
     if (hls == null) return;
-    hls.audioTrack = id;
-  }
 
-  /// Fires whenever the set of [audioTracks] or the active selection changes,
-  /// so callers can refresh their UI.
-  Stream<void> get audioTracksChanged => _audioTracksController.stream;
+    final wasPlaying = !_videoElement.paused;
+    final previousSubtitleId = hls.subtitleTrack;
+    _isSwitching = true;
+    final gen = ++_switchGen;
+
+    // Tell hls.js where to resume; this avoids seeking before `seekable` is
+    // populated (MANIFEST_PARSED is too early and would clamp to 0).
+    hls.config.startPosition = startPositionSeconds;
+
+    late final JSFunction onManifestParsed;
+    onManifestParsed = ((String _, JSObject __) {
+      if (gen != _switchGen) {
+        hls.off('hlsManifestParsed', onManifestParsed);
+        return;
+      }
+      _isSwitching = false;
+      hls.off('hlsManifestParsed', onManifestParsed);
+    }).toJS;
+
+    late final JSFunction onSubsUpdated;
+    onSubsUpdated = ((String _, JSObject __) {
+      if (gen != _switchGen) {
+        hls.off(_kHlsSubtitleTracksUpdated, onSubsUpdated);
+        return;
+      }
+      // hls.js resets the active subtitle to -1 on reload; re-apply the prior
+      // selection so the chosen language survives the swap.
+      if (previousSubtitleId >= 0) {
+        hls.subtitleTrack = previousSubtitleId;
+        _rewireActiveCueTrack();
+      }
+      hls.off(_kHlsSubtitleTracksUpdated, onSubsUpdated);
+    }).toJS;
+
+    late final JSFunction onFragBuffered;
+    onFragBuffered = ((String _, JSObject __) {
+      if (gen != _switchGen) {
+        hls.off('hlsFragBuffered', onFragBuffered);
+        return;
+      }
+      if (wasPlaying) play();
+      hls.off('hlsFragBuffered', onFragBuffered);
+    }).toJS;
+
+    hls.on('hlsManifestParsed', onManifestParsed);
+    hls.on(_kHlsSubtitleTracksUpdated, onSubsUpdated);
+    hls.on('hlsFragBuffered', onFragBuffered);
+
+    _currentSource = url; // a media re-attach must reload the new source
+    hls.stopLoad(); // drain in-flight requests before swapping
+    hls.loadSource(url);
+  }
 
   /// Initializes the wrapped [html.VideoElement].
   ///
@@ -253,7 +295,7 @@ class VideoPlayer {
         _hls!.on(
             'hlsMediaAttached',
             ((String _, JSObject __) {
-              _hls!.loadSource(uri.toString());
+              _hls!.loadSource(_currentSource);
             }.toJS));
         _hls!.on(
             'hlsError',
@@ -288,12 +330,6 @@ class VideoPlayer {
         }).toJS;
         _hls!.on(_kHlsSubtitleTracksUpdated, _onHlsSubtitleTracksUpdated!);
         _hls!.on(_kHlsSubtitleTrackSwitch, _onHlsSubtitleTrackSwitch!);
-        _onHlsAudioTracksUpdated =
-            ((String _, JSObject __) => _audioTracksController.add(null)).toJS;
-        _onHlsAudioTrackSwitched =
-            ((String _, JSObject __) => _audioTracksController.add(null)).toJS;
-        _hls!.on(_kHlsAudioTracksUpdated, _onHlsAudioTracksUpdated!);
-        _hls!.on(_kHlsAudioTrackSwitched, _onHlsAudioTrackSwitched!);
         _eventsSubscriptions.add(_videoElement.onCanPlay.listen((dynamic _) {
           _onVideoElementInitialization(_);
           setBuffering(false);
@@ -369,6 +405,10 @@ class VideoPlayer {
     }));
 
     _eventsSubscriptions.add(_videoElement.onEnded.listen((dynamic _) {
+      // hls.js calls MediaSource.endOfStream() while swapping sources, which
+      // makes some browsers (Firefox) fire `ended`; don't report completion
+      // for a mid-switch teardown.
+      if (_isSwitching) return;
       setBuffering(false);
       _eventController.add(VideoEvent(eventType: VideoEventType.completed));
     }));
@@ -489,16 +529,9 @@ class VideoPlayer {
       if (_onHlsSubtitleTrackSwitch != null) {
         hls.off(_kHlsSubtitleTrackSwitch, _onHlsSubtitleTrackSwitch!);
       }
-      if (_onHlsAudioTracksUpdated != null) {
-        hls.off(_kHlsAudioTracksUpdated, _onHlsAudioTracksUpdated!);
-      }
-      if (_onHlsAudioTrackSwitched != null) {
-        hls.off(_kHlsAudioTrackSwitched, _onHlsAudioTrackSwitched!);
-      }
     }
     _subtitleCueController.close();
     _subtitleTracksController.close();
-    _audioTracksController.close();
     _hls?.stopLoad();
     for (final sub in _eventsSubscriptions) {
       sub.cancel();
