@@ -264,6 +264,32 @@ class VideoPlayer {
   /// This method sets the required DOM attributes so videos can [play] programmatically,
   /// and attaches listeners to the internal events from the [html.VideoElement]
   /// to react to them / expose them through the [VideoPlayer.events] stream.
+  /// Cineseed verbose HLS logging, toggled at runtime by the host app setting
+  /// `window.__cineseedHlsVerbose = true` (driven by the server's CINESEED_DEBUG
+  /// / `?debug=1`). Read defensively — absent/non-boolean → off.
+  bool get _hlsVerbose {
+    try {
+      return globalContext
+              .getProperty<JSBoolean?>('__cineseedHlsVerbose'.toJS)
+              ?.toDart ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Best-effort fragment sequence number from an hls.js frag event payload.
+  int? _fragSn(JSObject data) {
+    try {
+      final frag = data.getProperty<JSObject?>('frag'.toJS);
+      final sn = frag?.getProperty<JSAny?>('sn'.toJS);
+      if (sn != null && sn.typeofEquals('number')) {
+        return (sn as JSNumber).toDartInt;
+      }
+    } catch (_) {}
+    return null;
+  }
+
   Future<void> initialize() async {
     _videoElement
       ..autoplay = false
@@ -330,6 +356,26 @@ class VideoPlayer {
         }).toJS;
         _hls!.on(_kHlsSubtitleTracksUpdated, _onHlsSubtitleTracksUpdated!);
         _hls!.on(_kHlsSubtitleTrackSwitch, _onHlsSubtitleTrackSwitch!);
+        // Cineseed debug: trace manifest/level loads and per-fragment lifecycle
+        // so playback stalls can be tied to a specific segment request. Chatty
+        // (one line per fragment), so gated behind the runtime verbose flag.
+        if (_hlsVerbose) {
+          for (final name in const <String>[
+            'hlsManifestParsed',
+            'hlsLevelLoaded',
+            'hlsFragLoading',
+            'hlsFragLoaded',
+            'hlsFragBuffered',
+          ]) {
+            _hls!.on(
+                name,
+                ((String _, JSObject data) {
+                  final sn = _fragSn(data);
+                  debugPrint(
+                      '[cineseed][HLS] $name${sn != null ? ' sn=$sn' : ''}');
+                }).toJS);
+          }
+        }
         _eventsSubscriptions.add(_videoElement.onCanPlay.listen((dynamic _) {
           _onVideoElementInitialization(_);
           setBuffering(false);
@@ -363,6 +409,22 @@ class VideoPlayer {
       setBuffering(true);
       _sendBufferingRangesUpdate();
     }));
+
+    // Cineseed debug: <video> element stall/seek transitions — the playback-side
+    // counterpart to the hls.js fragment trace above (a freeze shows up here as
+    // a `waiting`/`stalled` with no matching `playing` afterwards).
+    if (_hlsVerbose) {
+      void traceMediaEvent(String name, Stream<web.Event> stream) {
+        _eventsSubscriptions.add(stream.listen((web.Event _) => debugPrint(
+            '[cineseed][HLS] <video> $name t=${_videoElement.currentTime.toStringAsFixed(2)}')));
+      }
+
+      traceMediaEvent('waiting', _videoElement.onWaiting);
+      traceMediaEvent('stalled', _videoElement.onStalled);
+      traceMediaEvent('seeking', _videoElement.onSeeking);
+      traceMediaEvent('seeked', _videoElement.onSeeked);
+      traceMediaEvent('playing', _videoElement.onPlaying);
+    }
 
     // The error event fires when some form of error occurs while attempting to load or perform the media.
     _eventsSubscriptions.add(_videoElement.onError.listen((web.Event _) {
