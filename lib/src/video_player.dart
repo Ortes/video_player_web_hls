@@ -327,7 +327,7 @@ class VideoPlayer {
             'hlsError',
             (String _, JSObject data) {
               try {
-                final ErrorData _data = ErrorData(data);
+                final ErrorData _data = data as ErrorData;
                 // Verbose: log every hls.js error, fatal or not. Non-fatal
                 // errors (frag load timeouts, buffer stalls) precede most
                 // fatal failures and are otherwise swallowed silently.

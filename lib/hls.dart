@@ -69,14 +69,10 @@ extension HlsConfigExtension on HlsConfig {
   external double startPosition;
 }
 
-class ErrorData {
-  late final String type;
-  late final String details;
-  late final bool fatal;
-
-  ErrorData(dynamic errorData) {
-    type = errorData.type as String;
-    details = errorData.details as String;
-    fatal = errorData.fatal as bool;
-  }
+/// hls.js `ERROR` event payload. Typed interop: `dynamic` member access on a
+/// JS object throws NoSuchMethodError under dart2wasm.
+extension type ErrorData._(JSObject _) implements JSObject {
+  external String get type;
+  external String get details;
+  external bool get fatal;
 }
