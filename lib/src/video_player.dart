@@ -298,13 +298,14 @@ class VideoPlayer {
 
   /// Disposes of the current [html.VideoElement].
   void dispose() {
+    _hls?.destroy();
+    _hls = null;
     _videoElement.removeAttribute('src');
     if (_onContextMenu != null) {
       _videoElement.removeEventListener('contextmenu', _onContextMenu);
       _onContextMenu = null;
     }
     _videoElement.load();
-    _hls?.stopLoad();
     for (final sub in _eventsSubscriptions) {
       sub.cancel();
     }

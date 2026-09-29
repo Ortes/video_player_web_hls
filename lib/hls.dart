@@ -15,7 +15,7 @@ class Hls {
 }
 
 extension HlsExtension on Hls {
-  external void stopLoad();
+  external void destroy();
 
   external void loadSource(String videoSrc);
 
