@@ -110,18 +110,13 @@ class VideoPlayer {
             }.toJS));
         _hls!.on(
             'hlsError',
-            (String _, JSObject data) {
-              try {
-                final ErrorData _data = ErrorData(data);
-                if (_data.fatal) {
-                  _eventController.addError(PlatformException(
-                    code: _kErrorValueToErrorName[2]!,
-                    message: _data.type,
-                    details: _data.details,
-                  ));
-                }
-              } catch (e) {
-                debugPrint('Error parsing hlsError: $e');
+            (String _, ErrorData data) {
+              if (data.fatal) {
+                _eventController.addError(PlatformException(
+                  code: _kErrorValueToErrorName[2]!,
+                  message: data.type,
+                  details: data.details,
+                ));
               }
             }.toJS);
         _eventsSubscriptions.add(_videoElement.onCanPlay.listen((dynamic _) {

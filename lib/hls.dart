@@ -37,14 +37,8 @@ extension HlsConfigExtension on HlsConfig {
   external JSFunction get xhrSetup;
 }
 
-class ErrorData {
-  late final String type;
-  late final String details;
-  late final bool fatal;
-
-  ErrorData(dynamic errorData) {
-    type = errorData.type as String;
-    details = errorData.details as String;
-    fatal = errorData.fatal as bool;
-  }
+extension type ErrorData._(JSObject _) implements JSObject {
+  external String get type;
+  external String get details;
+  external bool get fatal;
 }
