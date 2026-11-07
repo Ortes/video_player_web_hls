@@ -491,6 +491,18 @@ class VideoPlayer {
       // The rejection handler is called with a DOMException.
       // See: https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/play
       final web.DOMException exception = e as web.DOMException;
+      // AbortError means a pause() or a source change landed while this
+      // play() was still pending (e.g. buffering after a far seek): the
+      // element simply stays paused. Forwarding it would make
+      // VideoPlayerController mark the player erroneous for good, so it is
+      // dropped here; every other rejection (NotAllowedError,
+      // NotSupportedError, ...) is still surfaced.
+      if (exception.name == 'AbortError') {
+        if (_hlsVerbose) {
+          debugPrint('[hls] play() aborted: ${exception.message}');
+        }
+        return null;
+      }
       _eventController.addError(PlatformException(
         code: exception.name,
         message: exception.message,
