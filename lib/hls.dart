@@ -24,6 +24,15 @@ extension HlsExtension on Hls {
   external void on(String event, JSFunction callback);
 
   external HlsConfig config;
+
+  external JSArray<HlsAudioTrackJs> get audioTracks;
+
+  external int audioTrack;
+}
+
+extension type HlsAudioTrackJs._(JSObject _) implements JSObject {
+  external String? get name;
+  external String? get lang;
 }
 
 @JS()

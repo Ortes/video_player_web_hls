@@ -147,6 +147,19 @@ class VideoPlayerPluginHls extends VideoPlayerPlatform {
     return _player(textureId).setOptions(options);
   }
 
+  @override
+  Future<List<VideoAudioTrack>> getAudioTracks(int playerId) async {
+    return _player(playerId).getAudioTracks();
+  }
+
+  @override
+  Future<void> selectAudioTrack(int playerId, String trackId) async {
+    return _player(playerId).selectAudioTrack(trackId);
+  }
+
+  @override
+  bool isAudioTrackSupportAvailable() => true;
+
   // Retrieves a [VideoPlayer] by its internal `id`.
   // It must have been created earlier from the [create] method.
   VideoPlayer _player(int id) {

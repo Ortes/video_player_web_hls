@@ -119,8 +119,8 @@ class VideoPlayer {
                 ));
               }
             }.toJS);
-        _eventsSubscriptions.add(_videoElement.onCanPlay.listen((dynamic _) {
-          _onVideoElementInitialization(_);
+        _eventsSubscriptions.add(_videoElement.onCanPlay.listen((web.Event event) {
+          _onVideoElementInitialization(event);
           setBuffering(false);
         }));
       } catch (e) {
@@ -289,6 +289,50 @@ class VideoPlayer {
   Duration getPosition() {
     _sendBufferingRangesUpdate();
     return _videoElementCurrentTime;
+  }
+
+  /// Lists the audio renditions known so far: from hls.js, or from the video element when it plays natively.
+  ///
+  /// A track id is its index in this list.
+  List<VideoAudioTrack> getAudioTracks() {
+    final Hls? hls = _hls;
+    if (hls != null) {
+      final List<HlsAudioTrackJs> tracks = hls.audioTracks.toDart;
+      final int selected = hls.audioTrack;
+      return <VideoAudioTrack>[
+        for (int i = 0; i < tracks.length; i++)
+          VideoAudioTrack(id: '$i', label: tracks[i].name, language: tracks[i].lang, isSelected: i == selected),
+      ];
+    }
+    final List<web.AudioTrack> tracks = _videoElement.audioTrackList;
+    return <VideoAudioTrack>[
+      for (int i = 0; i < tracks.length; i++)
+        VideoAudioTrack(
+          id: '$i',
+          label: tracks[i].label.isEmpty ? null : tracks[i].label,
+          language: tracks[i].language.isEmpty ? null : tracks[i].language,
+          isSelected: tracks[i].enabled,
+        ),
+    ];
+  }
+
+  /// Switches to the audio rendition [trackId], as returned by [getAudioTracks].
+  void selectAudioTrack(String trackId) {
+    final int index = int.parse(trackId);
+    final Hls? hls = _hls;
+    if (hls != null) {
+      RangeError.checkValidIndex(index, hls.audioTracks.toDart, 'trackId');
+      hls.audioTrack = index;
+      return;
+    }
+    final List<web.AudioTrack> tracks = _videoElement.audioTrackList;
+    RangeError.checkValidIndex(index, tracks, 'trackId');
+    tracks[index].enabled = true;
+    for (int i = 0; i < tracks.length; i++) {
+      if (i != index) {
+        tracks[i].enabled = false;
+      }
+    }
   }
 
   /// Returns the currentTime of the underlying video element.

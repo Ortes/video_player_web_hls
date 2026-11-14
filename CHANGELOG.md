@@ -1,3 +1,6 @@
+## 1.4.0
+* Implements `getAudioTracks`, `selectAudioTrack` and `isAudioTrackSupportAvailable` (hls.js renditions, or the native `audioTracks` list on Safari)
+* Bump video_player_platform_interface to ^6.6.0, min sdk to 3.7.0 and min flutter to 3.29.0
 ## 1.3.0
 * Bump web to ">=1.0.0 <2.0.0" 
 * Bump min sdk to 3.4.0 and min flutter to 3.22.0
